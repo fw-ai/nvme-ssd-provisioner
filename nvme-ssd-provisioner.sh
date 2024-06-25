@@ -4,7 +4,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-mapfile -t SSD_NVME_DEVICE_LIST < <(nvme list | grep "Amazon EC2 NVMe Instance Storage" | cut -d " " -f 1 || true)
+# TODO: grepping '/dev' here can potentially override the root disk if it's an NVMe device. We should make it configurable.
+mapfile -t SSD_NVME_DEVICE_LIST < <(nvme list | grep "/dev" | cut -d " " -f 1 || true)
 SSD_NVME_DEVICE_COUNT=${#SSD_NVME_DEVICE_LIST[@]}
 RAID_DEVICE=${RAID_DEVICE:-/dev/md0}
 RAID_CHUNK_SIZE=${RAID_CHUNK_SIZE:-512}  # Kilo Bytes
@@ -12,7 +13,9 @@ FILESYSTEM_BLOCK_SIZE=${FILESYSTEM_BLOCK_SIZE:-4096}  # Bytes
 STRIDE=$((RAID_CHUNK_SIZE * 1024 / FILESYSTEM_BLOCK_SIZE))
 STRIPE_WIDTH=$((SSD_NVME_DEVICE_COUNT * STRIDE))
 
-# Checking if provisioning already happend
+mkdir -p /nvme
+
+# Checking if provisioning already happened
 if [[ "$(ls -A /pv-disks)" ]]
 then
   echo 'Volumes already present in "/pv-disks"'

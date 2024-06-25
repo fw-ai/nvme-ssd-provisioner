@@ -8,6 +8,6 @@ RUN \
     mdadm \
     nvme-cli \
     util-linux
-COPY eks-nvme-ssd-provisioner.sh /usr/local/bin/
+COPY nvme-ssd-provisioner.sh /usr/local/bin/
 
-ENTRYPOINT ["eks-nvme-ssd-provisioner.sh"]
+ENTRYPOINT ["nvme-ssd-provisioner.sh"]

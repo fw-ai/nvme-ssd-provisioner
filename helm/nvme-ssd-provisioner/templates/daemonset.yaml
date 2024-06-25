@@ -1,17 +1,17 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "eks-nvme-ssd-provisioner.fullname" . }}
+  name: {{ include "nvme-ssd-provisioner.fullname" . }}
   labels:
-    {{- include "eks-nvme-ssd-provisioner.labels" . | nindent 4 }}
+    {{- include "nvme-ssd-provisioner.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      {{- include "eks-nvme-ssd-provisioner.selectorLabels" . | nindent 6 }}
+      {{- include "nvme-ssd-provisioner.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "eks-nvme-ssd-provisioner.selectorLabels" . | nindent 8 }}
+        {{- include "nvme-ssd-provisioner.selectorLabels" . | nindent 8 }}
     spec:
       automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       {{- with .Values.nodeSelector }}

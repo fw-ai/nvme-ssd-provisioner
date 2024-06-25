@@ -1,5 +1,5 @@
 apiVersion: v2
-name: eks-nvme-ssd-provisioner
+name: nvme-ssd-provisioner
 description: A Helm chart for Kubernetes
 
 type: application
