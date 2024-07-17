@@ -4,7 +4,7 @@ priorityClassName: system-node-critical
 image:
   repository: ""
   pullPolicy: IfNotPresent
-  tag: v1.0.0
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
