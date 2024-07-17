@@ -30,6 +30,21 @@ then
     DEVICE="${SSD_NVME_DEVICE_LIST[0]}"
     ;;
   *)
+    # On some system (OCI cloud) the raid device id might change after reboot. Try to guess it
+    RAID_DEVICES_OUTPUT=$(mdadm --detail --scan | awk '{print $2}')
+    RAID_DEVICES_COUNT=$(echo "$RAID_DEVICES_OUTPUT" | wc -l)
+    case $RAID_DEVICES_COUNT in
+    "0")
+      ;;
+    "1")
+      RAID_DEVICE=$RAID_DEVICES_OUTPUT
+      ;;
+    "2")
+      echo "Found multiple RAID devices, not sure which one to reuse: $RAID_DEVICES_OUTPUT"
+      exit 1
+      ;;
+    esac
+    echo "Trying to assemble $RAID_DEVICE"
     # check if raid has already been started and is clean, if not try to assemble
     mdadm --detail "$RAID_DEVICE" 2>/dev/null | grep clean >/dev/null || mdadm --assemble "$RAID_DEVICE" "${SSD_NVME_DEVICE_LIST[@]}"
     # print details to log
