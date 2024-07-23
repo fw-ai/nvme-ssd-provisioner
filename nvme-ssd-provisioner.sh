@@ -5,7 +5,21 @@ set -o nounset
 set -o pipefail
 
 # TODO: grepping '/dev' here can potentially override the root disk if it's an NVMe device. We should make it configurable.
-mapfile -t SSD_NVME_DEVICE_LIST < <(nvme list | grep "/dev" | cut -d " " -f 1 || true)
+ALL_SSD_NVME_DEVICE_LIST=$(nvme list | grep "/dev" | cut -d " " -f 1 || true)
+
+SSD_NVME_DEVICE_LIST=()
+
+for device in $ALL_SSD_NVME_DEVICE_LIST; do
+    # Check if the device has partitions
+    if ! lsblk -n -o NAME | grep -q "$(basename $device)p"; then
+        # Check if the device is mounted
+        if ! mount | grep -q "$device"; then
+            # If not mounted and no partitions, add to the array
+            SSD_NVME_DEVICE_LIST+=("$device")
+        fi
+    fi
+done
+
 SSD_NVME_DEVICE_COUNT=${#SSD_NVME_DEVICE_LIST[@]}
 RAID_DEVICE=${RAID_DEVICE:-/dev/md0}
 RAID_CHUNK_SIZE=${RAID_CHUNK_SIZE:-512}  # Kilo Bytes
