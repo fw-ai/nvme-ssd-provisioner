@@ -4,21 +4,34 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+# Device filter regex - defaults to match all devices
+DEVICE_FILTER=${DEVICE_FILTER:-".*"}
+
 # TODO: grepping '/dev' here can potentially override the root disk if it's an NVMe device. We should make it configurable.
 ALL_SSD_NVME_DEVICE_LIST=$(nvme list | grep "/dev" | cut -d " " -f 1 || true)
 
 SSD_NVME_DEVICE_LIST=()
 
 for device in $ALL_SSD_NVME_DEVICE_LIST; do
-    # Check if the device has partitions
-    if ! lsblk -n -o NAME | grep -q "$(basename $device)p"; then
-        # Check if the device is mounted
-        if ! mount | grep -q "$device"; then
-            # If not mounted and no partitions, add to the array
-            SSD_NVME_DEVICE_LIST+=("$device")
+    # Check if the device matches the filter
+    if [[ "$device" =~ $DEVICE_FILTER ]]; then
+        # Check if the device has partitions
+        if ! lsblk -n -o NAME | grep -q "$(basename $device)p"; then
+            # Check if the device is mounted
+            if ! mount | grep -q "$device"; then
+                # If not mounted and no partitions, add to the array
+                SSD_NVME_DEVICE_LIST+=("$device")
+            fi
         fi
+    else
+        echo "Device $device does not match filter pattern $DEVICE_FILTER, skipping"
     fi
 done
+
+echo "Found ${#SSD_NVME_DEVICE_LIST[@]} NVMe devices matching filter pattern: $DEVICE_FILTER"
+if [ ${#SSD_NVME_DEVICE_LIST[@]} -gt 0 ]; then
+    echo "Devices: ${SSD_NVME_DEVICE_LIST[*]}"
+fi
 
 SSD_NVME_DEVICE_COUNT=${#SSD_NVME_DEVICE_LIST[@]}
 RAID_DEVICE=${RAID_DEVICE:-/dev/md0}
