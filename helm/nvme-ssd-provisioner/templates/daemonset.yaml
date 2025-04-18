@@ -42,10 +42,7 @@ spec:
             mountPropagation: "Bidirectional"
         {{- if .Values.env }}
         env:
-          {{- range $key, $value := .Values.env }}
-          - name: {{ $key }}
-            value: {{ $value | quote }}
-          {{- end }}
+          {{- toYaml .Values.env | nindent 10 }}
         {{- end }}
       volumes:
       - name: pv-disks

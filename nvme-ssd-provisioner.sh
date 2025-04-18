@@ -4,7 +4,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# Device filter regex - defaults to match all devices
+# Device filter regex, defaults to match all devices
 DEVICE_FILTER=${DEVICE_FILTER:-".*"}
 
 # TODO: grepping '/dev' here can potentially override the root disk if it's an NVMe device. We should make it configurable.
@@ -87,14 +87,15 @@ then
   fi
   ln -s "/pv-disks/$UUID" /nvme/disk || true
   echo "Device $DEVICE has been mounted to /pv-disks/$UUID"
+  echo "NVMe SSD provisioning is done and I will go to sleep now"
   while sleep 3600; do :; done
 fi
 
 # Perform provisioning based on nvme device count
 case $SSD_NVME_DEVICE_COUNT in
 "0")
-  echo 'No devices found of type "Amazon EC2 NVMe Instance Storage"'
-  echo "Maybe your node selectors are not set correct"
+  echo 'No devices found of type "NVMe Instance Storage"'
+  echo "Maybe your node selectors are not set correctly"
   exit 1
   ;;
 "1")
