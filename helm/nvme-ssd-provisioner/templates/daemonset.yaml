@@ -40,6 +40,10 @@ spec:
           - mountPath: /nvme
             name: nvme
             mountPropagation: "Bidirectional"
+        {{- if .Values.env }}
+        env:
+          {{- toYaml .Values.env | nindent 10 }}
+        {{- end }}
       volumes:
       - name: pv-disks
         hostPath:
