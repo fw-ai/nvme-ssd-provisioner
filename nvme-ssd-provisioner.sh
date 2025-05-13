@@ -6,6 +6,13 @@ set -o pipefail
 
 # Device filter regex, defaults to match all devices
 DEVICE_FILTER=${DEVICE_FILTER:-".*"}
+# The path relative to /pv-disks to mount the device (e.g. /my-partition)
+RELATIVE_MOUNT_PATH=${MOUNT_PATH:-""}
+# The path relative to /nvme to create a symlink to the device (e.g. /my-disk)
+RELATIVE_SYMLINK_PATH=${SYMLINK_PATH:-"/disk"}
+
+ABSOLUTE_MOUNT_PATH="/pv-disks$RELATIVE_MOUNT_PATH"
+ABSOLUTE_SYMLINK_PATH="/nvme$RELATIVE_SYMLINK_PATH"
 
 # TODO: grepping '/dev' here can potentially override the root disk if it's an NVMe device. We should make it configurable.
 ALL_SSD_NVME_DEVICE_LIST=$(nvme list | grep "/dev" | cut -d " " -f 1 || true)
@@ -40,13 +47,13 @@ FILESYSTEM_BLOCK_SIZE=${FILESYSTEM_BLOCK_SIZE:-4096}  # Bytes
 STRIDE=$((RAID_CHUNK_SIZE * 1024 / FILESYSTEM_BLOCK_SIZE))
 STRIPE_WIDTH=$((SSD_NVME_DEVICE_COUNT * STRIDE))
 
-mkdir -p /nvme
+mkdir -p $ABSOLUTE_SYMLINK_PATH
 
 # Checking if provisioning already happened
-if [[ "$(ls -A /pv-disks)" ]]
+if [[ "$(ls -A $ABSOLUTE_MOUNT_PATH)" ]]
 then
-  echo 'Volumes already present in "/pv-disks"'
-  echo -e "\n$(ls -Al /pv-disks | tail -n +2)\n"
+  echo 'Volumes already present in "$ABSOLUTE_MOUNT_PATH"'
+  echo -e "\n$(ls -Al $ABSOLUTE_MOUNT_PATH | tail -n +2)\n"
   echo "I assume that provisioning already happend, trying to assemble and mount!"
   case $SSD_NVME_DEVICE_COUNT in
   "0")
@@ -85,8 +92,8 @@ then
   else
     mount -o defaults,noatime,discard,nobarrier --uuid "$UUID" "/pv-disks/$UUID"
   fi
-  ln -s "/pv-disks/$UUID" /nvme/disk || true
-  echo "Device $DEVICE has been mounted to /pv-disks/$UUID"
+  ln -s "$ABSOLUTE_MOUNT_PATH/$UUID" "$ABSOLUTE_SYMLINK_PATH" || true
+  echo "Device $DEVICE has been mounted to $ABSOLUTE_MOUNT_PATH/$UUID"
   echo "NVMe SSD provisioning is done and I will go to sleep now"
   while sleep 3600; do :; done
 fi
@@ -116,10 +123,10 @@ case $SSD_NVME_DEVICE_COUNT in
 esac
 
 UUID=$(blkid -s UUID -o value "$DEVICE")
-mkdir -p "/pv-disks/$UUID"
-mount -o defaults,noatime,discard,nobarrier --uuid "$UUID" "/pv-disks/$UUID"
-ln -s "/pv-disks/$UUID" /nvme/disk
-echo "Device $DEVICE has been mounted to /pv-disks/$UUID"
+mkdir -p "$ABSOLUTE_MOUNT_PATH/$UUID"
+mount -o defaults,noatime,discard,nobarrier --uuid "$UUID" "$ABSOLUTE_MOUNT_PATH/$UUID"
+ln -s "$ABSOLUTE_MOUNT_PATH/$UUID" "$ABSOLUTE_SYMLINK_PATH"
+echo "Device $DEVICE has been mounted to $ABSOLUTE_MOUNT_PATH/$UUID"
 echo "NVMe SSD provisioning is done and I will go to sleep now"
 
 while sleep 3600; do :; done
