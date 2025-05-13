@@ -70,9 +70,26 @@ then
     "1")
       RAID_DEVICE=$RAID_DEVICES_OUTPUT
       ;;
-    "2")
-      echo "Found multiple RAID devices, not sure which one to reuse: $RAID_DEVICES_OUTPUT"
-      exit 1
+    *)
+      # If multiple RAID devices exist, try to find the one with matching devices
+      FOUND_RAID=""
+      for raid_dev in $RAID_DEVICES_OUTPUT; do
+        DEVICE_MEMBERS=$(mdadm --detail "$raid_dev" | grep -o "/dev/[^ ]*" | sort)
+        EXPECTED_MEMBERS=$(echo "${SSD_NVME_DEVICE_LIST[@]}" | tr ' ' '\n' | sort)
+        echo "Checking RAID device $raid_dev with NVMe devices $DEVICE_MEMBERS"
+        if [ "$DEVICE_MEMBERS" = "$EXPECTED_MEMBERS" ]; then
+          FOUND_RAID=$raid_dev
+          break
+        fi
+        echo "RAID device $raid_dev does not match expected NVMe devices"
+      done
+      if [ -n "$FOUND_RAID" ]; then
+        RAID_DEVICE=$FOUND_RAID
+        echo "Found matching RAID device $RAID_DEVICE"
+      else
+        echo "Found multiple RAID devices but none match the expected NVMe devices:"
+        exit 1
+      fi
       ;;
     esac
     echo "Trying to assemble $RAID_DEVICE"
@@ -107,14 +124,20 @@ case $SSD_NVME_DEVICE_COUNT in
   DEVICE="${SSD_NVME_DEVICE_LIST[0]}"
   ;;
 *)
+  # Create a unique name for this RAID device based on the devices it contains
+  RAID_NAME="raid-$(echo ${SSD_NVME_DEVICE_LIST[@]} | tr ' ' '-' | tr '/' '-')"
   mdadm --create --verbose "$RAID_DEVICE" --level=0 -c "${RAID_CHUNK_SIZE}" \
     --raid-devices=${#SSD_NVME_DEVICE_LIST[@]} "${SSD_NVME_DEVICE_LIST[@]}"
+  # Add metadata to identify this RAID device
+  mdadm --update-metadata "$RAID_DEVICE" --update=name:"$RAID_NAME"
   while [ -n "$(mdadm --detail "$RAID_DEVICE" | grep -ioE 'State :.*resyncing')" ]; do
     echo "Raid is resyncing.."
     sleep 1
   done
   echo "Raid0 device $RAID_DEVICE has been created with disks ${SSD_NVME_DEVICE_LIST[*]}"
   mkfs.ext4 -m 0 -b "$FILESYSTEM_BLOCK_SIZE" -E "stride=$STRIDE,stripe-width=$STRIPE_WIDTH" "$RAID_DEVICE"
+  # Add a filesystem label
+  e2label "$RAID_DEVICE" "$RAID_NAME"
   DEVICE=$RAID_DEVICE
   ;;
 esac
