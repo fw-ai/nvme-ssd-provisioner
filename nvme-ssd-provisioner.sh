@@ -72,19 +72,19 @@ then
       ;;
     *)
       # If multiple RAID devices exist, try to find the one with matching devices
-      FOUND_RAID=""
+      MATCHING_RAID_DEVICE=""
       for raid_dev in $RAID_DEVICES_OUTPUT; do
         DEVICE_MEMBERS=$(mdadm --detail "$raid_dev" | grep -o "/dev/[^ ]*" | sort)
         EXPECTED_MEMBERS=$(echo "${SSD_NVME_DEVICE_LIST[@]}" | tr ' ' '\n' | sort)
         echo "Checking RAID device $raid_dev with NVMe devices $DEVICE_MEMBERS"
         if [ "$DEVICE_MEMBERS" = "$EXPECTED_MEMBERS" ]; then
-          FOUND_RAID=$raid_dev
+          MATCHING_RAID_DEVICE=$raid_dev
           break
         fi
         echo "RAID device $raid_dev does not match expected NVMe devices"
       done
-      if [ -n "$FOUND_RAID" ]; then
-        RAID_DEVICE=$FOUND_RAID
+      if [ -n "$MATCHING_RAID_DEVICE" ]; then
+        RAID_DEVICE=$MATCHING_RAID_DEVICE
         echo "Found matching RAID device $RAID_DEVICE"
       else
         echo "Found multiple RAID devices but none match the expected NVMe devices:"
