@@ -124,20 +124,14 @@ case $SSD_NVME_DEVICE_COUNT in
   DEVICE="${SSD_NVME_DEVICE_LIST[0]}"
   ;;
 *)
-  # Create a unique name for this RAID device based on the devices it contains
-  RAID_NAME="raid-$(echo ${SSD_NVME_DEVICE_LIST[@]} | tr ' ' '-' | tr '/' '-')"
   mdadm --create --verbose "$RAID_DEVICE" --level=0 -c "${RAID_CHUNK_SIZE}" \
     --raid-devices=${#SSD_NVME_DEVICE_LIST[@]} "${SSD_NVME_DEVICE_LIST[@]}"
-  # Add metadata to identify this RAID device
-  mdadm --update-metadata "$RAID_DEVICE" --update=name:"$RAID_NAME"
   while [ -n "$(mdadm --detail "$RAID_DEVICE" | grep -ioE 'State :.*resyncing')" ]; do
     echo "Raid is resyncing.."
     sleep 1
   done
   echo "Raid0 device $RAID_DEVICE has been created with disks ${SSD_NVME_DEVICE_LIST[*]}"
   mkfs.ext4 -m 0 -b "$FILESYSTEM_BLOCK_SIZE" -E "stride=$STRIDE,stripe-width=$STRIPE_WIDTH" "$RAID_DEVICE"
-  # Add a filesystem label
-  e2label "$RAID_DEVICE" "$RAID_NAME"
   DEVICE=$RAID_DEVICE
   ;;
 esac
