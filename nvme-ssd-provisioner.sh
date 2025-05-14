@@ -45,98 +45,106 @@ STRIDE=$((RAID_CHUNK_SIZE * 1024 / FILESYSTEM_BLOCK_SIZE))
 STRIPE_WIDTH=$((SSD_NVME_DEVICE_COUNT * STRIDE))
 
 mkdir -p /nvme
+mkdir -p /pv-disks
 
-# Checking if provisioning already happened
-if [[ "$(ls -A /pv-disks)" ]]
-then
-  echo 'Volumes already present in "/pv-disks"'
-  echo -e "\n$(ls -Al /pv-disks | tail -n +2)\n"
-  echo "I assume that provisioning already happend, trying to assemble and mount!"
-  case $SSD_NVME_DEVICE_COUNT in
-  "0")
+# Checking if provisioning already happened for this instance
+case $SSD_NVME_DEVICE_COUNT in
+"0")
+    echo "No devices found of type \"NVMe Instance Storage\""
+    echo "Maybe your node selectors or device filter are not set correctly"
     exit 1
     ;;
-  "1")
-    echo "no need to assable a raid"
-    DEVICE="${SSD_NVME_DEVICE_LIST[0]}"
+"1")
+    echo "Single device mode, no RAID device needed"
+    # UUID will only be set if the device is already formatted
+    UUID=$(blkid -s UUID -o value "${SSD_NVME_DEVICE_LIST[0]}")
+    if [ -n "$UUID" ]; then
+        echo "Device ${SSD_NVME_DEVICE_LIST[0]} is already formatted with UUID $UUID"
+        DEVICE="${SSD_NVME_DEVICE_LIST[0]}"
+        # Double check that the device is of type ext4
+        TYPE=$(blkid -s TYPE -o value "$DEVICE")
+        if [ "$TYPE" != "ext4" ]; then
+            echo "Device $DEVICE is formatted but not of type ext4, exiting"
+            exit 1
+        fi
+    else
+        echo "Device ${SSD_NVME_DEVICE_LIST[0]} is not formatted, will format it"
+    fi
     ;;
-  *)
+*)
     # On some system (OCI cloud) the raid device id might change after reboot. Try to guess it
     RAID_DEVICES_OUTPUT=$(mdadm --detail --scan | awk '{print $2}')
     RAID_DEVICES_COUNT=$(echo "$RAID_DEVICES_OUTPUT" | wc -l)
     case $RAID_DEVICES_COUNT in
     "0")
-      ;;
-    "1")
-      RAID_DEVICE=$RAID_DEVICES_OUTPUT
-      ;;
+        echo "No RAID devices found, will create new one"
+        ;;
     *)
-      # If multiple RAID devices exist, try to find the one with matching devices
-      MATCHING_RAID_DEVICE=""
-      for raid_device in $RAID_DEVICES_OUTPUT; do
-        DEVICE_MEMBERS=$(mdadm --detail "$raid_device" | grep -o "/dev/[^ ]$*" | sort)
-        EXPECTED_MEMBERS=$(echo "${SSD_NVME_DEVICE_LIST[@]}" | tr ' ' '\n' | sort)
-        echo "Checking RAID device $raid_device with NVMe devices $DEVICE_MEMBERS"
-        if [ "$DEVICE_MEMBERS" = "$EXPECTED_MEMBERS" ]; then
-          MATCHING_RAID_DEVICE=$raid_device
-          break
+        # If RAID devices exist, try to find the one with matching devices
+        MATCHING_RAID_DEVICE=""
+        for raid_device in $RAID_DEVICES_OUTPUT; do
+            DEVICE_MEMBERS=$(mdadm --detail "$raid_device" | grep -o "/dev/[^ ]$*" | sort)
+            EXPECTED_MEMBERS=$(echo "${SSD_NVME_DEVICE_LIST[@]}" | tr ' ' '\n' | sort)
+            echo "Checking RAID device $raid_device with NVMe devices $DEVICE_MEMBERS"
+            if [ "$DEVICE_MEMBERS" = "$EXPECTED_MEMBERS" ]; then
+                MATCHING_RAID_DEVICE=$raid_device
+                break
+            fi
+            echo "RAID device $raid_device does not match expected NVMe devices"
+        done
+        if [ -n "$MATCHING_RAID_DEVICE" ]; then
+            RAID_DEVICE=$MATCHING_RAID_DEVICE
+            echo "Found matching RAID device $RAID_DEVICE"
+            echo "Trying to assemble $RAID_DEVICE"
+            # check if raid has already been started and is clean, if not try to assemble
+            mdadm --detail "$RAID_DEVICE" 2>/dev/null | grep clean >/dev/null || mdadm --assemble "$RAID_DEVICE" "${SSD_NVME_DEVICE_LIST[@]}"
+            # print details to log
+            mdadm --detail "$RAID_DEVICE"
+            DEVICE=$RAID_DEVICE
+        else
+            echo "No matching RAID device found, will create new one"
         fi
-        echo "RAID device $raid_device does not match expected NVMe devices"
-      done
-      if [ -n "$MATCHING_RAID_DEVICE" ]; then
-        RAID_DEVICE=$MATCHING_RAID_DEVICE
-        echo "Found matching RAID device $RAID_DEVICE"
-      else
-        echo "Found multiple RAID devices but none match the expected NVMe devices:"
-        exit 1
-      fi
-      ;;
+        ;;
     esac
-    echo "Trying to assemble $RAID_DEVICE"
-    # check if raid has already been started and is clean, if not try to assemble
-    mdadm --detail "$RAID_DEVICE" 2>/dev/null | grep clean >/dev/null || mdadm --assemble "$RAID_DEVICE" "${SSD_NVME_DEVICE_LIST[@]}"
-    # print details to log
-    mdadm --detail "$RAID_DEVICE"
-    DEVICE=$RAID_DEVICE
-    ;;
-  esac
-  UUID=$(blkid -s UUID -o value "$DEVICE")
-  if mount | grep "$DEVICE" > /dev/null; then
-    echo "device $DEVICE appears to be mounted already"
-  else
-    mount -o defaults,noatime,discard,nobarrier --uuid "$UUID" "/pv-disks/$UUID"
-  fi
-  ln -s "/pv-disks/$UUID" "$ABSOLUTE_SYMLINK_PATH" || true
-  echo "Device $DEVICE has been mounted to /pv-disks/$UUID"
-  echo "NVMe SSD provisioning is done and I will go to sleep now"
-  while sleep 3600; do :; done
-fi
 
-# Perform provisioning based on nvme device count
-case $SSD_NVME_DEVICE_COUNT in
-"0")
-  echo 'No devices found of type "NVMe Instance Storage"'
-  echo "Maybe your node selectors are not set correctly"
-  exit 1
-  ;;
-"1")
-  mkfs.ext4 -m 0 -b "$FILESYSTEM_BLOCK_SIZE" "${SSD_NVME_DEVICE_LIST[0]}"
-  DEVICE="${SSD_NVME_DEVICE_LIST[0]}"
-  ;;
-*)
-  mdadm --create --verbose "$RAID_DEVICE" --level=0 -c "${RAID_CHUNK_SIZE}" \
-    --raid-devices=${#SSD_NVME_DEVICE_LIST[@]} "${SSD_NVME_DEVICE_LIST[@]}"
-  while [ -n "$(mdadm --detail "$RAID_DEVICE" | grep -ioE 'State :.*resyncing')" ]; do
-    echo "Raid is resyncing.."
-    sleep 1
-  done
-  echo "Raid0 device $RAID_DEVICE has been created with disks ${SSD_NVME_DEVICE_LIST[*]}"
-  mkfs.ext4 -m 0 -b "$FILESYSTEM_BLOCK_SIZE" -E "stride=$STRIDE,stripe-width=$STRIPE_WIDTH" "$RAID_DEVICE"
-  DEVICE=$RAID_DEVICE
-  ;;
 esac
 
-UUID=$(blkid -s UUID -o value "$DEVICE")
+if [ -n "${DEVICE:-}" ]; then
+    # If the device exists and is already mounted, just go to sleep.
+    if mount | grep "$DEVICE" > /dev/null; then
+      echo "Device $DEVICE appears to be mounted already"
+      UUID=$(blkid -s UUID -o value "$DEVICE")
+      ln -s "/pv-disks/$UUID" "$ABSOLUTE_SYMLINK_PATH" || true
+      echo "NVMe SSD provisioning is done and I will go to sleep now"
+      while sleep 3600; do :; done
+    fi
+else
+    # No matching device found, create a new one.
+    case $SSD_NVME_DEVICE_COUNT in
+    "0")
+        echo 'No devices found of type "NVMe Instance Storage"'
+        echo "Maybe your node selectors or device filter are not set correctly"
+        exit 1
+        ;;
+    "1")
+        mkfs.ext4 -m 0 -b "$FILESYSTEM_BLOCK_SIZE" "${SSD_NVME_DEVICE_LIST[0]}"
+        DEVICE="${SSD_NVME_DEVICE_LIST[0]}"
+        ;;
+    *)
+        mdadm --create --verbose "$RAID_DEVICE" --level=0 -c "${RAID_CHUNK_SIZE}" \
+            --raid-devices=${#SSD_NVME_DEVICE_LIST[@]} "${SSD_NVME_DEVICE_LIST[@]}"
+        while [ -n "$(mdadm --detail "$RAID_DEVICE" | grep -ioE 'State :.*resyncing')" ]; do
+            echo "Raid is resyncing.."
+            sleep 1
+        done
+        echo "Raid0 device $RAID_DEVICE has been created with disks ${SSD_NVME_DEVICE_LIST[*]}"
+        mkfs.ext4 -m 0 -b "$FILESYSTEM_BLOCK_SIZE" -E "stride=$STRIDE,stripe-width=$STRIPE_WIDTH" "$RAID_DEVICE"
+        DEVICE=$RAID_DEVICE
+        ;;
+    esac
+    UUID=$(blkid -s UUID -o value "$DEVICE")
+fi
+
 mkdir -p "/pv-disks/$UUID"
 mount -o defaults,noatime,discard,nobarrier --uuid "$UUID" "/pv-disks/$UUID"
 ln -s "/pv-disks/$UUID" "$ABSOLUTE_SYMLINK_PATH"
