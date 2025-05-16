@@ -90,7 +90,10 @@ case $SSD_NVME_DEVICE_COUNT in
                 MATCHING_RAID_DEVICE=$raid_device
                 break
             fi
-            echo "RAID device $raid_device does not match expected NVMe devices"
+            if [ -n "$(comm -12 <(echo "$DEVICE_MEMBERS") <(echo "$EXPECTED_MEMBERS"))" ]; then
+                echo "RAID device $raid_device has overlapping but not exactly matching NVMe devices, exiting to avoid corrupting it."
+                exit 1
+            fi
         done
         if [ -n "$MATCHING_RAID_DEVICE" ]; then
             RAID_DEVICE=$MATCHING_RAID_DEVICE
