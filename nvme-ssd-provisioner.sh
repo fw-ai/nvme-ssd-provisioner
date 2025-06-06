@@ -86,8 +86,12 @@ then
     mount -o defaults,noatime,discard,nobarrier --uuid "$UUID" "/pv-disks/$UUID"
   fi
   # Remove any existing directory/file to prevent race condition with workload pods
+  echo "Before cleanup: $(ls -larthZ /nvme/)"
   rm -rf /nvme/disk
+  echo "After cleanup: $(ls -larthZ /nvme/)"
   ln -s "/pv-disks/$UUID" /nvme/disk
+  echo "After symlink: $(ls -larthZ /nvme/)"
+  # If symlink creation fails, check permissions and SELinux contexts shown above
   echo "Device $DEVICE has been mounted to /pv-disks/$UUID"
   echo "NVMe SSD provisioning is done and I will go to sleep now"
   while sleep 3600; do :; done
@@ -121,8 +125,12 @@ UUID=$(blkid -s UUID -o value "$DEVICE")
 mkdir -p "/pv-disks/$UUID"
 mount -o defaults,noatime,discard,nobarrier --uuid "$UUID" "/pv-disks/$UUID"
 # Remove any existing directory/file to prevent race condition with workload pods
+echo "Before cleanup: $(ls -larthZ /nvme/)"
 rm -rf /nvme/disk
+echo "After cleanup: $(ls -larthZ /nvme/)"
 ln -s "/pv-disks/$UUID" /nvme/disk
+echo "After symlink: $(ls -larthZ /nvme/)"
+# If symlink creation fails, check permissions and SELinux contexts shown above
 echo "Device $DEVICE has been mounted to /pv-disks/$UUID"
 echo "NVMe SSD provisioning is done and I will go to sleep now"
 
